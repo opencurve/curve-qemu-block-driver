@@ -1,0 +1,840 @@
+diff --git a/block/Makefile.objs b/block/Makefile.objs
+index 67a036a..f2ecaf4 100644
+--- a/block/Makefile.objs
++++ b/block/Makefile.objs
+@@ -11,8 +11,9 @@ block-obj-$(CONFIG_POSIX) += raw-posix.o
+ block-obj-$(CONFIG_LINUX_AIO) += linux-aio.o
+ block-obj-y += null.o mirror.o commit.o io.o
+ block-obj-y += throttle-groups.o
+-
++block-obj-y += nebd.o
+ block-obj-y += nbd.o nbd-client.o sheepdog.o
++block-obj-$(CONFIG_CBD) += cbd.o nebd.o
+ block-obj-$(CONFIG_LIBISCSI) += iscsi.o
+ block-obj-$(CONFIG_LIBNFS) += nfs.o
+ block-obj-$(CONFIG_CURL) += curl.o
+@@ -36,6 +37,10 @@ curl.o-cflags      := $(CURL_CFLAGS)
+ curl.o-libs        := $(CURL_LIBS)
+ rbd.o-cflags       := $(RBD_CFLAGS)
+ rbd.o-libs         := $(RBD_LIBS)
++cbd.o-cflags       := $(CBD_CFLAGS)
++cbd.o-libs         := $(CBD_LIBS)
++nebd.o-cflags      := $(CBD_CFLAGS)
++nebd.o-libs        := $(CBD_LIBS)
+ gluster.o-cflags   := $(GLUSTERFS_CFLAGS)
+ gluster.o-libs     := $(GLUSTERFS_LIBS)
+ ssh.o-cflags       := $(LIBSSH2_CFLAGS)
+diff --git a/block/cbd.c b/block/cbd.c
+new file mode 100644
+index 0000000..5157bb6
+--- /dev/null
++++ b/block/cbd.c
+@@ -0,0 +1,96 @@
++/*
++ *     Copyright (c) 2020 NetEase Inc.
++ *
++ *  This program is free software; you can redistribute it and/or modify
++ *  it under the terms of the GNU General Public License as published by
++ *  the Free Software Foundation; either version 2 of the License, or
++ *  (at your option) any later version.
++ *
++ *  This program is distributed in the hope that it will be useful,
++ *  but WITHOUT ANY WARRANTY; without even the implied warranty of
++ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ *  GNU General Public License for more details.
++ *
++ *  You should have received a copy of the GNU General Public License along
++ *  with this program; if not, write to the Free Software Foundation, Inc.,
++ *  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
++ */
++
++/*
++ * Project: Curve
++ *
++ * History:
++ *          2018/10/10  Wenyu Zhou   Initial version
++ *
++ * QEMU Block driver for Curve Block Device
++ *
++ */
++
++#include "qemu/osdep.h"
++#include "libcbd.h"
++#include "qapi/error.h"
++#include "qemu/uri.h"
++#include "block/block_int.h"
++#include "qemu/module.h"
++#include "qemu/option.h"
++#include "qapi/qobject-input-visitor.h"
++#include "qapi/qobject-output-visitor.h"
++#include "qapi/qmp/qdict.h"
++#include "qapi/qmp/qjson.h"
++#include "qapi/qmp/qlist.h"
++#include "qapi/qmp/qstring.h"
++#include "qemu/cutils.h"
++
++#include "nebd.h"
++
++#define CBD_MAX_CONF_NAME_SIZE 128
++#define CBD_MAX_CONF_VAL_SIZE 512
++#define CBD_MAX_CONF_SIZE 1024
++#define CBD_MAX_POOL_NAME_SIZE 128
++#define CBD_MAX_NAME_SIZE 128
++
++typedef struct CBDDiskInfo {
++    char*   filename;
++    int64_t size;
++} CBDDiskInfo;
++
++typedef struct BDRVCBDState {
++    CBDDiskInfo info;
++    CurveFd     fd;
++} BDRVCBDState;
++
++typedef struct CbdAioContext {
++    BlockAIOCB      bac;
++    CurveAioContext cac;
++    void*           iov;
++} CbdAioContext;
++
++
++static void cbd_refresh_limits(BlockDriverState *bs, Error **errp)
++{
++    bs->bl.request_alignment = 4096;
++}
++
++static BlockDriver bdrv_cbd = {
++    .format_name                = "cbd",
++    .protocol_name              = "cbd",
++    .instance_size              = sizeof(BDRVCBDState),
++    .bdrv_file_open             = nebd_open,
++    .bdrv_close                 = nebd_close,
++
++    .bdrv_aio_readv             = nebd_aio_preadv,
++    .bdrv_aio_writev            = nebd_aio_pwritev,
++
++    .bdrv_co_flush_to_disk      = nebd_co_flush,
++    .bdrv_refresh_limits        = cbd_refresh_limits,
++    .bdrv_getlength             = nebd_getlength,
++    .bdrv_truncate              = nebd_truncate,
++};
++
++static void bdrv_cbd_init(void)
++{
++    bdrv_register(&bdrv_cbd);
++}
++
++block_init(bdrv_cbd_init);
++
+diff --git a/block/libcbd.h b/block/libcbd.h
+new file mode 100644
+index 0000000..32d72e4
+--- /dev/null
++++ b/block/libcbd.h
+@@ -0,0 +1,142 @@
++/*
++ *     Copyright (c) 2020 NetEase Inc.
++ *
++ *  This program is free software; you can redistribute it and/or modify
++ *  it under the terms of the GNU General Public License as published by
++ *  the Free Software Foundation; either version 2 of the License, or
++ *  (at your option) any later version.
++ *
++ *  This program is distributed in the hope that it will be useful,
++ *  but WITHOUT ANY WARRANTY; without even the implied warranty of
++ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ *  GNU General Public License for more details.
++ *
++ *  You should have received a copy of the GNU General Public License along
++ *  with this program; if not, write to the Free Software Foundation, Inc.,
++ *  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
++ */
++
++/*
++ * Copyright (C) 2018 NetEase Inc. All rights reserved.
++ * Project: Curve
++ *
++ * History:
++ *          2018/10/10  Wenyu Zhou   Initial version
++ */
++
++#ifndef __LIBCBD_H__
++#define __LIBCBD_H__
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++#include <stdlib.h>
++#include <string.h>
++#include <stdbool.h>
++#include <sys/types.h>
++#include <sys/stat.h>
++#include <fcntl.h>
++#include <unistd.h>
++#include <aio.h>
++
++// #define CBD_BACKEND_FAKE
++
++#ifndef CBD_BACKEND_FAKE
++#define CBD_BACKEND_LIBCURVE
++#else
++#define CBD_BACKEND_EXT4
++#endif
++
++#define CBD_MAX_FILE_PATH_LEN   1024
++#define CBD_MAX_BUF_LEN         1024 * 1024 * 32
++
++typedef int CurveFd;
++
++typedef enum LIBCURVE_ERROR {
++    LIBCURVE_ERROR_NOERROR,
++    LIBCURVE_ERROR_UNKNOWN,
++    LIBCURVE_ERROR_MAX,
++} LIBCURVE_ERROR;
++
++typedef enum LIBCURVE_OP {
++    LIBCURVE_OP_READ,
++    LIBCURVE_OP_WRITE,
++    LIBCURVE_OP_MAX,
++} LIBCURVE_OP;
++
++struct CurveAioContext;
++
++typedef void (*LibCurveAioCallBack)(struct CurveAioContext* context);
++
++typedef struct CurveAioContext {
++    off_t               offset;
++    size_t              length;
++    int                 ret;
++    LIBCURVE_OP         op;
++    LibCurveAioCallBack cb;
++    void*               buf;
++} CurveAioContext;
++
++typedef struct CurveOptions {
++    bool    inited;
++    char*   conf;
++#ifdef CBD_BACKEND_EXT4
++    char*   datahome;
++#endif
++} CurveOptions;
++
++int cbd_ext4_init(const CurveOptions* options);
++int cbd_ext4_fini(void);
++int cbd_ext4_open(const char* filename);
++int cbd_ext4_close(int fd);
++int cbd_ext4_pread(int fd, void* buf, off_t offset, size_t length);
++int cbd_ext4_pwrite(int fd, const void* buf, off_t offset, size_t length);
++int cbd_ext4_aio_pread(int fd, CurveAioContext* context);
++int cbd_ext4_aio_pwrite(int fd, CurveAioContext* context);
++int cbd_ext4_sync(int fd);
++int64_t cbd_ext4_filesize(const char* filename);
++
++int cbd_libcurve_init(const CurveOptions* options);
++int cbd_libcurve_fini(void);
++int cbd_libcurve_open(const char* filename);
++int cbd_libcurve_close(int fd);
++int cbd_libcurve_pread(int fd, void* buf, off_t offset, size_t length);
++int cbd_libcurve_pwrite(int fd, const void* buf, off_t offset, size_t length);
++int cbd_libcurve_aio_pread(int fd, CurveAioContext* context);
++int cbd_libcurve_aio_pwrite(int fd, CurveAioContext* context);
++int cbd_libcurve_sync(int fd);
++int64_t cbd_libcurve_filesize(const char* filename);
++int cbd_libcurve_resize(const char* filename, int64_t size);
++
++#ifndef CBD_BACKEND_FAKE
++#define cbd_lib_init        cbd_libcurve_init
++#define cbd_lib_fini        cbd_libcurve_fini
++#define cbd_lib_open        cbd_libcurve_open
++#define cbd_lib_close       cbd_libcurve_close
++#define cbd_lib_pread       cbd_libcurve_pread
++#define cbd_lib_pwrite      cbd_libcurve_pwrite
++#define cbd_lib_aio_pread   cbd_libcurve_aio_pread
++#define cbd_lib_aio_pwrite  cbd_libcurve_aio_pwrite
++#define cbd_lib_sync        cbd_libcurve_sync
++#define cbd_lib_filesize    cbd_libcurve_filesize
++#define cbd_lib_resize      cbd_libcurve_resize
++#else
++#define cbd_lib_init        cbd_ext4_init
++#define cbd_lib_fini        cbd_ext4_fini
++#define cbd_lib_open        cbd_ext4_open
++#define cbd_lib_close       cbd_ext4_close
++#define cbd_lib_pread       cbd_ext4_pread
++#define cbd_lib_pwrite      cbd_ext4_pwrite
++#define cbd_lib_aio_pread   cbd_ext4_aio_pread
++#define cbd_lib_aio_pwrite  cbd_ext4_aio_pwrite
++#define cbd_lib_sync        cbd_ext4_sync
++#define cbd_lib_filesize    cbd_ext4_filesize
++#endif
++
++#ifdef __cplusplus
++}  // extern "C"
++#endif
++
++#endif  // __LIBCBD_H__
++
+diff --git a/block/libnebd.h b/block/libnebd.h
+new file mode 100644
+index 0000000..03683a7
+--- /dev/null
++++ b/block/libnebd.h
+@@ -0,0 +1,88 @@
++/*
++ *     Copyright (c) 2020 NetEase Inc.
++ *
++ *  This program is free software; you can redistribute it and/or modify
++ *  it under the terms of the GNU General Public License as published by
++ *  the Free Software Foundation; either version 2 of the License, or
++ *  (at your option) any later version.
++ *
++ *  This program is distributed in the hope that it will be useful,
++ *  but WITHOUT ANY WARRANTY; without even the implied warranty of
++ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ *  GNU General Public License for more details.
++ *
++ *  You should have received a copy of the GNU General Public License along
++ *  with this program; if not, write to the Free Software Foundation, Inc.,
++ *  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
++ */
++
++/*
++ * Project: curve
++ * File Created: 2019-08-07
++ * Author: hzchenwei7
++ */
++
++#ifndef __LIBNEBD_H_
++#define __LIBNEBD_H_
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++#include <stdlib.h>
++#include <string.h>
++#include <stdbool.h>
++#include <sys/types.h>
++#include <sys/stat.h>
++#include <fcntl.h>
++#include <unistd.h>
++#include <aio.h>
++
++#define NEBD_MAX_FILE_PATH_LEN   1024
++#define NEBD_MAX_BUF_LEN         1024 * 1024 * 32
++
++typedef enum LIBAIO_OP {
++    LIBAIO_OP_READ,
++    LIBAIO_OP_WRITE,
++    LIBAIO_OP_DISCARD,
++    LIBAIO_OP_FLUSH,
++} LIBAIO_OP;
++
++struct NebdClientAioContext;
++
++typedef void (*LibAioCallBack)(struct NebdClientAioContext* context);
++
++typedef struct NebdClientAioContext {
++    off_t offset;
++    size_t length;
++    int ret;
++    LIBAIO_OP op;
++    LibAioCallBack cb;
++    void* buf;
++    unsigned int retryCount;
++} NebdClientAioContext;
++
++// int nebd_lib_fini(void);
++// for ceph & curve
++int nebd_lib_init(void);
++int nebd_lib_open(const char* filename);
++int nebd_lib_close(int fd);
++int nebd_lib_pread(int fd, void* buf, off_t offset, size_t length);
++int nebd_lib_pwrite(int fd, const void* buf, off_t offset, size_t length);
++int nebd_lib_discard(int fd, NebdClientAioContext* context);
++int nebd_lib_aio_pread(int fd, NebdClientAioContext* context);
++int nebd_lib_aio_pwrite(int fd, NebdClientAioContext* context);
++int nebd_lib_sync(int fd);
++int64_t nebd_lib_filesize(int fd);
++int nebd_lib_resize(int fd, int64_t size);
++// for ceph only
++int nebd_lib_flush(int fd, NebdClientAioContext* context);
++int64_t nebd_lib_getinfo(int fd);
++int nebd_lib_invalidcache(int fd);
++
++#ifdef __cplusplus
++}  // extern "C"
++#endif
++
++#endif  // __LIBNEBD_H_
++
+diff --git a/block/nebd.c b/block/nebd.c
+new file mode 100644
+index 0000000..081e537
+--- /dev/null
++++ b/block/nebd.c
+@@ -0,0 +1,359 @@
++/*
++ *     Copyright (c) 2020 NetEase Inc.
++ *
++ *  This program is free software; you can redistribute it and/or modify
++ *  it under the terms of the GNU General Public License as published by
++ *  the Free Software Foundation; either version 2 of the License, or
++ *  (at your option) any later version.
++ *
++ *  This program is distributed in the hope that it will be useful,
++ *  but WITHOUT ANY WARRANTY; without even the implied warranty of
++ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ *  GNU General Public License for more details.
++ *
++ *  You should have received a copy of the GNU General Public License along
++ *  with this program; if not, write to the Free Software Foundation, Inc.,
++ *  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
++ */
++
++/* ====================================================
++#
++#   Author        : hzchenwei7
++#   File Name     : nebd.c
++#   Last Modified : 2019-08-07 15:49
++#   Describe      :
++#
++# ====================================================
++*/
++
++#include "qemu/osdep.h"
++#include "nebd.h"
++#include "libnebd.h"
++#include "qapi/error.h"
++#include "qemu/uri.h"
++#include "block/block_int.h"
++#include "qemu/module.h"
++#include "qemu/option.h"
++#include "qapi/qmp/qdict.h"
++#include "qapi/qmp/qjson.h"
++#include "qapi/qmp/qlist.h"
++#include "qapi/qmp/qstring.h"
++
++#define SUPPORT_AIO
++
++#define CBD_MAX_CONF_NAME_SIZE 128
++#define CBD_MAX_CONF_VAL_SIZE 512
++#define CBD_MAX_CONF_SIZE 1024
++#define CBD_MAX_POOL_NAME_SIZE 128
++#define CBD_MAX_NAME_SIZE 128
++
++typedef struct CBDDiskInfo {
++    char*   filename;
++    int64_t size;
++} CBDDiskInfo;
++
++typedef struct BDRVNEBDState {
++    CBDDiskInfo info;
++    int         fd;
++} BDRVNEBDState;
++
++typedef struct NebdAioContext {
++    BlockAIOCB      bac;
++    NebdClientAioContext cac;
++    void*           iov;
++    QEMUBH *bh;
++} NebdAioContext;
++
++static QemuOptsList nebd_runtime_opts = {
++    .name = "nebd",
++    .head = QTAILQ_HEAD_INITIALIZER(nebd_runtime_opts.head),
++    .desc = {
++        {
++            .name = "pool",
++            .type = QEMU_OPT_STRING,
++            .help = "Curve pool name",
++        },
++        {
++            .name = "file",
++            .type = QEMU_OPT_STRING,
++            .help = "Curve file in the pool",
++        },
++        {
++            .name = "conf",
++            .type = QEMU_OPT_STRING,
++            .help = "Curve config file location",
++        },
++        { /* end of list */ }
++    },
++};
++
++static QemuOptsList runtime_opts = {
++    .name = "nebd",
++    .head = QTAILQ_HEAD_INITIALIZER(runtime_opts.head),
++    .desc = {
++        {
++            .name = "filename",
++            .type = QEMU_OPT_STRING,
++            .help = "Specification of the nebd image",
++        },
++        { /* end of list */ }
++    },
++};
++
++int nebd_open(BlockDriverState *bs, QDict *options, int flags, Error **errp) {
++    BDRVNEBDState *s = bs->opaque;
++    int ret = -EINVAL;
++
++    QemuOpts *opts;
++    Error *local_err = NULL;
++    const char *filename;
++
++    opts = qemu_opts_create(&runtime_opts, NULL, 0, &error_abort);
++    qemu_opts_absorb_qdict(opts, options, &local_err);
++    if (local_err) {
++        error_propagate(errp, local_err);
++        goto failed_opts;
++    }
++
++    filename = qemu_opt_get(opts, "filename");
++
++    s->info.filename = g_strdup(filename);
++    qdict_del(options, "conf");
++    qdict_del(options, "pool");
++
++    ret = nebd_lib_init();
++    if (ret) {
++        goto failed_opts;
++    }
++
++    s->fd = nebd_lib_open(filename);
++    if (s->fd < 0) {
++        ret = -1;
++        goto failed_opts;
++    }
++    s->info.size = nebd_lib_filesize(s->fd);
++    qemu_opts_del(opts);
++    return 0;
++
++failed_opts:
++    qemu_opts_del(opts);
++    return ret;
++}
++
++void nebd_close(BlockDriverState *bs) {
++    BDRVNEBDState *s = bs->opaque;
++
++    nebd_lib_close(s->fd);
++}
++
++
++static const AIOCBInfo cbd_aiocb_info = {
++    .aiocb_size = sizeof(NebdAioContext),
++};
++
++static void nebd_complete_aio(void *cbd_opaque) {
++    NebdAioContext* cbdac = (NebdAioContext *)cbd_opaque;
++    NebdClientAioContext* cac = &cbdac->cac;
++    int ret = cac->ret;
++    BlockAIOCB* bac = &cbdac->bac;
++    QEMUIOVector* qiov = (QEMUIOVector *)cbdac->iov;
++    BlockCompletionFunc* cb = bac->cb;
++    char* buf = cac->buf;
++    void* opaque = bac->opaque;
++
++    qemu_bh_delete(cbdac->bh);
++
++    if (cac->op == LIBAIO_OP_READ) {
++        qemu_iovec_from_buf(qiov, 0, buf, cac->length);
++    }
++
++    cb(opaque, ret);
++
++    qemu_aio_unref(cbdac);
++    g_free(buf);
++}
++
++static inline NebdAioContext* nebd_aio_context_entry(
++    NebdClientAioContext* cac) {
++    uint64_t offset = (uint64_t)(&((NebdAioContext *)0)->cac);
++    return (NebdAioContext *)((char *)cac - offset);
++}
++
++static void nebd_aio_callback(struct NebdClientAioContext* cac) {
++    NebdAioContext* cbdac = nebd_aio_context_entry(cac);
++    BlockAIOCB* bac = &cbdac->bac;
++
++    cbdac->bh = aio_bh_new(bdrv_get_aio_context(bac->bs),
++                            nebd_complete_aio, cbdac);
++    qemu_bh_schedule(cbdac->bh);
++}
++
++static BlockAIOCB *nebd_aio_start(BlockDriverState *bs,
++                                  uint64_t offset, uint64_t bytes,
++                                  QEMUIOVector *qiov,
++                                  BlockCompletionFunc *cb,
++                                  void *opaque,
++                                  LIBAIO_OP op) {
++    int ret;
++    char* buf = NULL;
++    NebdAioContext *cbdac = NULL;
++    NebdClientAioContext *cac = NULL;
++    BlockAIOCB *bac = NULL;
++    BDRVNEBDState *s = bs->opaque;
++
++    cbdac = (NebdAioContext *)qemu_aio_get(&cbd_aiocb_info, bs, cb, opaque);
++    bac = &cbdac->bac;
++    cac = &cbdac->cac;
++    if (op == LIBAIO_OP_READ || op == LIBAIO_OP_WRITE) {
++        if (!bytes) {
++            goto nebd_aio_start_cleanup;
++        }
++
++        buf = (char *)g_malloc(bytes);
++        if (!buf) {
++            goto nebd_aio_start_cleanup;
++        }
++    }
++
++    memset(cac, 0, sizeof(NebdClientAioContext));
++    cac->offset = offset;
++    cac->length = bytes;
++    cac->op = op;
++    cac->cb = nebd_aio_callback;
++    cac->buf = buf;
++
++    cbdac->iov = qiov;
++
++    if (op == LIBAIO_OP_READ) {
++        ret = nebd_lib_aio_pread(s->fd, &cbdac->cac);
++    } else if (op == LIBAIO_OP_WRITE) {
++        memset(buf, 0, bytes);
++        qemu_iovec_to_buf(qiov, 0, buf, bytes);
++        ret = nebd_lib_aio_pwrite(s->fd, &cbdac->cac);
++    } else if (op == LIBAIO_OP_DISCARD) {
++        ret = nebd_lib_discard(s->fd, &cbdac->cac);
++    } else if (op == LIBAIO_OP_FLUSH) {
++        ret = nebd_lib_flush(s->fd, &cbdac->cac);
++    } else {
++        ret = -1;
++    }
++
++    if (ret) {
++        goto nebd_aio_start_cleanup;
++    }
++    return bac;
++
++nebd_aio_start_cleanup:
++    qemu_aio_unref(cbdac);
++    if (buf) {
++        g_free(buf);
++    }
++
++    return NULL;
++}
++
++BlockAIOCB *nebd_aio_preadv(BlockDriverState *bs,
++                            int64_t sector_num,
++                            QEMUIOVector *qiov,
++                            int nb_sectors,
++                            BlockCompletionFunc *cb,
++                            void *opaque) {
++    BlockAIOCB* bac = NULL;
++
++    bac = nebd_aio_start(bs, sector_num << BDRV_SECTOR_BITS,
++      (int64_t) nb_sectors << BDRV_SECTOR_BITS,
++      qiov, cb, opaque, LIBAIO_OP_READ);
++
++    return bac;
++}
++
++BlockAIOCB *nebd_aio_pwritev(BlockDriverState *bs,
++                             int64_t sector_num,
++                             QEMUIOVector *qiov,
++                             int nb_sectors,
++                             BlockCompletionFunc *cb,
++                             void *opaque) {
++    BlockAIOCB* bac = NULL;
++
++    bac = nebd_aio_start(bs, sector_num << BDRV_SECTOR_BITS,
++      (int64_t) nb_sectors << BDRV_SECTOR_BITS,
++      qiov, cb, opaque, LIBAIO_OP_WRITE);
++
++    return bac;
++}
++
++BlockAIOCB* nebd_aio_discard(BlockDriverState *bs,
++                             int64_t sector_num,
++                             int nb_sectors,
++                             BlockCompletionFunc *cb,
++                             void *opaque) {
++    BlockAIOCB* bac = NULL;
++
++    bac = nebd_aio_start(bs, sector_num << BDRV_SECTOR_BITS,
++      (int64_t) nb_sectors << BDRV_SECTOR_BITS,
++      NULL, cb, opaque, LIBAIO_OP_DISCARD);
++
++    return bac;
++}
++
++int nebd_co_flush(BlockDriverState *bs) {
++    BDRVNEBDState *s = bs->opaque;
++    int ret;
++
++    ret = nebd_lib_sync(s->fd);
++
++    return ret;
++}
++
++BlockAIOCB *nebd_aio_flush(BlockDriverState *bs,
++                           BlockCompletionFunc *cb,
++                           void *opaque) {
++    BlockAIOCB* bac = NULL;
++    bac =  nebd_aio_start(bs, 0, 0, NULL, cb, opaque, LIBAIO_OP_FLUSH);
++    return bac;
++}
++
++//static void nebd_refresh_limits(BlockDriverState *bs, Error **errp)
++//{
++//    bs->bl.request_alignment = 4096;
++//}
++
++int64_t nebd_getlength(BlockDriverState *bs) {
++    BDRVNEBDState *s = bs->opaque;
++
++    return nebd_lib_filesize(s->fd);
++}
++
++int nebd_truncate(BlockDriverState *bs, int64_t offset) {
++    BDRVNEBDState *s = bs->opaque;
++    int r;
++
++    r = nebd_lib_resize(s->fd, offset);
++    if (r < 0) {
++        return r;
++    }
++
++    return 0;
++}
++
++int nebd_getinfo(BlockDriverState *bs, BlockDriverInfo *bdi) {
++    BDRVNEBDState *s = bs->opaque;
++
++    int r;
++    r = nebd_lib_getinfo(s->fd);
++    if (r < 0) {
++        return r;
++    }
++
++    bdi->cluster_size = r;
++    return 0;
++}
++
++void nebd_invalidate_cache(BlockDriverState *bs,
++                           Error **errp) {
++    BDRVNEBDState *s = bs->opaque;
++    int r = nebd_lib_invalidcache(s->fd);
++    if (r < 0) {
++        error_setg_errno(errp, -r, "Failed to invalidate the cache");
++    }
++}
+diff --git a/block/nebd.h b/block/nebd.h
+new file mode 100644
+index 0000000..90c58b7
+--- /dev/null
++++ b/block/nebd.h
+@@ -0,0 +1,73 @@
++/*
++ *     Copyright (c) 2020 NetEase Inc.
++ *
++ *  This program is free software; you can redistribute it and/or modify
++ *  it under the terms of the GNU General Public License as published by
++ *  the Free Software Foundation; either version 2 of the License, or
++ *  (at your option) any later version.
++ *
++ *  This program is distributed in the hope that it will be useful,
++ *  but WITHOUT ANY WARRANTY; without even the implied warranty of
++ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ *  GNU General Public License for more details.
++ *
++ *  You should have received a copy of the GNU General Public License along
++ *  with this program; if not, write to the Free Software Foundation, Inc.,
++ *  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
++ */
++
++/*
++ * Project: curve
++ * File Created: 2019-08-07
++ * Author: hzchenwei7
++ */
++
++#ifndef __NEBD_H_
++#define __NEBD_H_
++
++#include "qemu/osdep.h"
++#include "libnebd.h"
++#include "qapi/error.h"
++#include "qemu/uri.h"
++#include "block/block_int.h"
++#include "qemu/module.h"
++#include "qemu/option.h"
++#include "qapi/qmp/qdict.h"
++#include "qapi/qmp/qjson.h"
++#include "qapi/qmp/qlist.h"
++#include "qapi/qmp/qstring.h"
++
++int nebd_open(BlockDriverState *bs, QDict *options, int flags, Error **errp);
++void nebd_close(BlockDriverState *bs);
++int nebd_co_flush(BlockDriverState *bs);
++int64_t nebd_getlength(BlockDriverState *bs);
++int nebd_truncate(BlockDriverState *bs, int64_t offset);
++int nebd_getinfo(BlockDriverState *bs, BlockDriverInfo *bdi);
++void nebd_invalidate_cache(BlockDriverState *bs, Error **errp);
++
++BlockAIOCB *nebd_aio_preadv(BlockDriverState *bs,
++                            int64_t sector_num,
++                            QEMUIOVector *qiov,
++                            int nb_sectors,
++                            BlockCompletionFunc *cb,
++                            void *opaque);
++
++BlockAIOCB *nebd_aio_pwritev(BlockDriverState *bs,
++                             int64_t sector_num,
++                             QEMUIOVector *qiov,
++                             int nb_sectors,
++                             BlockCompletionFunc *cb,
++                             void *opaque);
++
++BlockAIOCB* nebd_aio_discard(BlockDriverState *bs,
++                             int64_t sector_num,
++                             int nb_sectors,
++                             BlockCompletionFunc *cb,
++                             void *opaque);
++
++BlockAIOCB *nebd_aio_flush(BlockDriverState *bs,
++                           BlockCompletionFunc *cb,
++                           void *opaque);
++
++#endif  // __NEBD_H_
++
+diff --git a/configure b/configure
+index de368d7..c2ef80c 100755
+--- a/configure
++++ b/configure
+@@ -276,6 +276,7 @@ trace_backends="log"
+ trace_file="trace"
+ spice=""
+ rbd=""
++cbd="yes"
+ smartcard=""
+ libusb=""
+ usb_redir=""
+@@ -5566,6 +5567,13 @@ if test "$rbd" = "yes" ; then
+   echo "RBD_LIBS=$rbd_libs" >> $config_host_mak
+ fi
+
++if test "$cbd" = "yes" ; then
++  echo "CONFIG_CBD=m" >> $config_host_mak
++  echo "CBD_CFLAGS=$cbd_cflags" >> $config_host_mak
++  cbd_libs="-Wl,-rpath=/usr/lib/nebd -L/usr/lib/nebd -lnebdclient -lnebd_common -lclient_proto -lrt -lssl -lcrypto -ldl -lz -lpthread -lprotobuf -lglog -lprotobuf_lite -lbrpc -lbutil -lbthread -lbvar -lcc_brpc_internal_proto -ljson2pb -lmcpack2pb -lcc_brpc_idl_options_proto -lleveldb -lgflags"
++  echo "CBD_LIBS=$cbd_libs" >> $config_host_mak
++fi
++
+ echo "CONFIG_COROUTINE_BACKEND=$coroutine" >> $config_host_mak
+ if test "$coroutine_pool" = "yes" ; then
+   echo "CONFIG_COROUTINE_POOL=1" >> $config_host_mak
