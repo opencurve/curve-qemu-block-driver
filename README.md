@@ -111,3 +111,8 @@ Qemu挂载Curve块设备提供了两种方式：通过Curve-Client方式挂载�
    - /etc/curve/client.conf：client配置文件路径
 
 6. 进入Qemu虚拟机，并进行fio测试
+
+## libvirt支持
+
+`libvirt-curve.patch` 提供了对libvirt的支持，patch基于[libvirt 2.4.0](https://github.com/libvirt/libvirt/tree/v2.4.0)，其他版本可能需要相应的修改
+

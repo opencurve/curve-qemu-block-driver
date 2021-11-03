@@ -1,0 +1,170 @@
+diff --git a/src/libxl/libxl_conf.c b/src/libxl/libxl_conf.c
+index dcf8e7e00..0f9054393 100644
+--- a/src/libxl/libxl_conf.c
++++ b/src/libxl/libxl_conf.c
+@@ -595,6 +595,7 @@ libxlMakeNetworkDiskSrcStr(virStorageSourcePtr src,
+ 
+     switch ((virStorageNetProtocol) src->protocol) {
+     case VIR_STORAGE_NET_PROTOCOL_NBD:
++    case VIR_STORAGE_NET_PROTOCOL_CBD:
+     case VIR_STORAGE_NET_PROTOCOL_HTTP:
+     case VIR_STORAGE_NET_PROTOCOL_HTTPS:
+     case VIR_STORAGE_NET_PROTOCOL_FTP:
+diff --git a/src/qemu/qemu_command.c b/src/qemu/qemu_command.c
+index 6de32e4b1..cf7d849bc 100644
+--- a/src/qemu/qemu_command.c
++++ b/src/qemu/qemu_command.c
+@@ -492,6 +492,7 @@ qemuNetworkDriveGetPort(int protocol,
+             return 0;
+ 
+         case VIR_STORAGE_NET_PROTOCOL_RBD:
++        case VIR_STORAGE_NET_PROTOCOL_CBD:
+         case VIR_STORAGE_NET_PROTOCOL_LAST:
+         case VIR_STORAGE_NET_PROTOCOL_NONE:
+             /* not applicable */
+@@ -1104,6 +1105,14 @@ qemuBuildNetworkDriveStr(virStorageSourcePtr src,
+             ret = virBufferContentAndReset(&buf);
+             break;
+ 
++        case VIR_STORAGE_NET_PROTOCOL_CBD:
++            virBufferStrcat(&buf, "cbd:", src->path, NULL);
++            if (virBufferCheckError(&buf) < 0)
++                goto cleanup;
++            
++            ret = virBufferContentAndReset(&buf);
++            break;
++
+         case VIR_STORAGE_NET_PROTOCOL_SSH:
+             virReportError(VIR_ERR_INTERNAL_ERROR, "%s",
+                            _("'ssh' protocol is not yet supported"));
+diff --git a/src/qemu/qemu_driver.c b/src/qemu/qemu_driver.c
+index dfc2e3436..7b3a4c344 100644
+--- a/src/qemu/qemu_driver.c
++++ b/src/qemu/qemu_driver.c
+@@ -13718,6 +13718,7 @@ qemuDomainSnapshotPrepareDiskExternalBackingInactive(virDomainDiskDefPtr disk)
+         case VIR_STORAGE_NET_PROTOCOL_NONE:
+         case VIR_STORAGE_NET_PROTOCOL_NBD:
+         case VIR_STORAGE_NET_PROTOCOL_RBD:
++        case VIR_STORAGE_NET_PROTOCOL_CBD:
+         case VIR_STORAGE_NET_PROTOCOL_SHEEPDOG:
+         case VIR_STORAGE_NET_PROTOCOL_GLUSTER:
+         case VIR_STORAGE_NET_PROTOCOL_ISCSI:
+@@ -13782,6 +13783,7 @@ qemuDomainSnapshotPrepareDiskExternalOverlayActive(virDomainSnapshotDiskDefPtr d
+         case VIR_STORAGE_NET_PROTOCOL_NONE:
+         case VIR_STORAGE_NET_PROTOCOL_NBD:
+         case VIR_STORAGE_NET_PROTOCOL_RBD:
++        case VIR_STORAGE_NET_PROTOCOL_CBD:
+         case VIR_STORAGE_NET_PROTOCOL_SHEEPDOG:
+         case VIR_STORAGE_NET_PROTOCOL_ISCSI:
+         case VIR_STORAGE_NET_PROTOCOL_HTTP:
+@@ -13926,6 +13928,7 @@ qemuDomainSnapshotPrepareDiskInternal(virConnectPtr conn,
+         case VIR_STORAGE_NET_PROTOCOL_NONE:
+         case VIR_STORAGE_NET_PROTOCOL_NBD:
+         case VIR_STORAGE_NET_PROTOCOL_RBD:
++        case VIR_STORAGE_NET_PROTOCOL_CBD:
+         case VIR_STORAGE_NET_PROTOCOL_SHEEPDOG:
+         case VIR_STORAGE_NET_PROTOCOL_GLUSTER:
+         case VIR_STORAGE_NET_PROTOCOL_ISCSI:
+diff --git a/src/qemu/qemu_migration.c b/src/qemu/qemu_migration.c
+index b82d0cccf..315bc4edd 100644
+--- a/src/qemu/qemu_migration.c
++++ b/src/qemu/qemu_migration.c
+@@ -2443,6 +2443,9 @@ qemuMigrationIsSafe(virDomainDefPtr def,
+             } else if (disk->src->type == VIR_STORAGE_TYPE_NETWORK &&
+                        disk->src->protocol == VIR_STORAGE_NET_PROTOCOL_RBD) {
+                 continue;
++            } else if (disk->src->type == VIR_STORAGE_TYPE_NETWORK &&
++                       disk->src->protocol == VIR_STORAGE_NET_PROTOCOL_CBD) {
++                continue;
+             }
+ 
+             virReportError(VIR_ERR_MIGRATE_UNSAFE, "%s",
+diff --git a/src/qemu/qemu_parse_command.c b/src/qemu/qemu_parse_command.c
+index c3b27aac8..fd5691e82 100644
+--- a/src/qemu/qemu_parse_command.c
++++ b/src/qemu/qemu_parse_command.c
+@@ -1926,6 +1926,10 @@ qemuParseCommandLine(virCapsPtr caps,
+                 disk->src->type = VIR_STORAGE_TYPE_NETWORK;
+                 disk->src->protocol = VIR_STORAGE_NET_PROTOCOL_RBD;
+                 val += strlen("rbd:");
++            } else if (STRPREFIX(val, "cbd:")) {
++                disk->src->type = VIR_STORAGE_TYPE_NETWORK;
++                disk->src->protocol = VIR_STORAGE_NET_PROTOCOL_CBD;
++                val += strlen("cbd:");
+             } else if (STRPREFIX(val, "gluster")) {
+                 disk->src->type = VIR_STORAGE_TYPE_NETWORK;
+                 disk->src->protocol = VIR_STORAGE_NET_PROTOCOL_GLUSTER;
+@@ -2017,6 +2021,7 @@ qemuParseCommandLine(virCapsPtr caps,
+                 case VIR_STORAGE_NET_PROTOCOL_SSH:
+                 case VIR_STORAGE_NET_PROTOCOL_LAST:
+                 case VIR_STORAGE_NET_PROTOCOL_NONE:
++               case VIR_STORAGE_NET_PROTOCOL_CBD:
+                     /* ignored for now */
+                     break;
+                 }
+diff --git a/src/util/virstoragefile.c b/src/util/virstoragefile.c
+index 272db672d..932135791 100644
+--- a/src/util/virstoragefile.c
++++ b/src/util/virstoragefile.c
+@@ -76,6 +76,7 @@ VIR_ENUM_IMPL(virStorageFileFeature,
+ 
+ VIR_ENUM_IMPL(virStorageNetProtocol, VIR_STORAGE_NET_PROTOCOL_LAST,
+               "none",
++             "cbd",
+               "nbd",
+               "rbd",
+               "sheepdog",
+@@ -2634,6 +2635,7 @@ virStorageSourceParseBackingColon(virStorageSourcePtr src,
+     case VIR_STORAGE_NET_PROTOCOL_ISCSI:
+     case VIR_STORAGE_NET_PROTOCOL_GLUSTER:
+     case VIR_STORAGE_NET_PROTOCOL_SSH:
++    case VIR_STORAGE_NET_PROTOCOL_CBD:
+         virReportError(VIR_ERR_INTERNAL_ERROR,
+                        _("malformed backing store path for protocol %s"),
+                        protocol);
+@@ -2964,6 +2966,13 @@ virStorageSourceParseBackingJSONRBD(virStorageSourcePtr src,
+     return -1;
+ }
+ 
++static int
++virStorageSourceParseBackingJSONCBD(virStorageSourcePtr src ATTRIBUTE_UNUSED,
++                                    virJSONValuePtr json ATTRIBUTE_UNUSED,
++                                    int opaque ATTRIBUTE_UNUSED)
++{
++    return -1;//not support
++}
+ 
+ struct virStorageSourceJSONDriverParser {
+     const char *drvname;
+@@ -2986,6 +2995,7 @@ static const struct virStorageSourceJSONDriverParser jsonParsers[] = {
+     {"sheepdog", virStorageSourceParseBackingJSONSheepdog, 0},
+     {"ssh", virStorageSourceParseBackingJSONSSH, 0},
+     {"rbd", virStorageSourceParseBackingJSONRBD, 0},
++    {"cbd", virStorageSourceParseBackingJSONCBD, 0},
+ };
+ 
+ 
+diff --git a/src/util/virstoragefile.h b/src/util/virstoragefile.h
+index 3d0946801..fbf30694e 100644
+--- a/src/util/virstoragefile.h
++++ b/src/util/virstoragefile.h
+@@ -121,6 +121,7 @@ struct _virStorageTimestamps {
+ /* Information related to network storage */
+ typedef enum {
+     VIR_STORAGE_NET_PROTOCOL_NONE,
++    VIR_STORAGE_NET_PROTOCOL_CBD,
+     VIR_STORAGE_NET_PROTOCOL_NBD,
+     VIR_STORAGE_NET_PROTOCOL_RBD,
+     VIR_STORAGE_NET_PROTOCOL_SHEEPDOG,
+diff --git a/src/xenconfig/xen_xl.c b/src/xenconfig/xen_xl.c
+index bcdd35527..6d8d04341 100644
+--- a/src/xenconfig/xen_xl.c
++++ b/src/xenconfig/xen_xl.c
+@@ -916,6 +916,7 @@ xenFormatXLDiskSrcNet(virStorageSourcePtr src)
+ 
+     switch ((virStorageNetProtocol) src->protocol) {
+     case VIR_STORAGE_NET_PROTOCOL_NBD:
++    case VIR_STORAGE_NET_PROTOCOL_CBD:
+     case VIR_STORAGE_NET_PROTOCOL_HTTP:
+     case VIR_STORAGE_NET_PROTOCOL_HTTPS:
+     case VIR_STORAGE_NET_PROTOCOL_FTP:
