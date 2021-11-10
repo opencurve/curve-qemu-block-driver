@@ -82,7 +82,7 @@ Qemu挂载Curve块设备提供了两种方式：通过Curve-Client方式挂载�
    git clone https://github.com/qemu/qemu.git
    cd qemu
    git checkout v2.8.0   # 或git checkout v4.2.0
-   patch -p1 < ../qemu-block-driver/nebd.patch
+   patch -p1 < ../curve-qemu-block-driver/nebd-qemu-v2.8.0.patch  # 或nebd-qemu-v4.2.0.patch
    mkdir build && cd build
    ../configure --target-list=x86_64-softmmu
    make -j`getconf _NPROCESSORS_ONLN`
