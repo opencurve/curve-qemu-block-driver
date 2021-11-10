@@ -73,7 +73,7 @@ Qemu挂载Curve块设备提供了两种方式：通过Curve-Client方式挂载�
    sudo nebd-daemon start
    ```
 
-4. 将`nebd.patch`应用到Qemu v2.8.0版本的代码上，然后编译
+4. 将`nebd-qemu-v2.8.0.patch`应用到QEMU v2.8.0版本的代码上，或将`nebd-qemu-v4.2.0.patch`应用到QEMU v4.2.0版本的代码上，然后编译
 
    参考步骤：
 
@@ -81,7 +81,7 @@ Qemu挂载Curve块设备提供了两种方式：通过Curve-Client方式挂载�
    git clone https://github.com/opencurve/curve-qemu-block-driver
    git clone https://github.com/qemu/qemu.git
    cd qemu
-   git checkout v2.8.0
+   git checkout v2.8.0   # 或git checkout v4.2.0
    patch -p1 < ../qemu-block-driver/nebd.patch
    mkdir build && cd build
    ../configure --target-list=x86_64-softmmu
