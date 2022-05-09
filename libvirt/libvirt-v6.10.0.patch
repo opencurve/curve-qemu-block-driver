@@ -1,0 +1,215 @@
+From fe9c935bae541910eb15256c130542601e876f67 Mon Sep 17 00:00:00 2001
+From: root <root@host>
+Date: Sat, 7 May 2022 15:36:43 +0800
+Subject: [PATCH] support curve for libvirt-6.10.0
+
+Signed-off-by: root <root@host>
+---
+ src/libxl/libxl_conf.c       |  1 +
+ src/libxl/xen_xl.c           |  1 +
+ src/qemu/qemu_block.c        |  4 +++-
+ src/qemu/qemu_capabilities.c |  2 +-
+ src/qemu/qemu_command.c      |  6 ++++++
+ src/qemu/qemu_domain.c       |  1 +
+ src/qemu/qemu_snapshot.c     |  3 +++
+ src/util/virstoragefile.c    | 13 +++++++++++++
+ src/util/virstoragefile.h    |  1 +
+ 9 files changed, 30 insertions(+), 2 deletions(-)
+
+diff --git a/src/libxl/libxl_conf.c b/src/libxl/libxl_conf.c
+index 00748e2..24aa638 100644
+--- a/src/libxl/libxl_conf.c
++++ b/src/libxl/libxl_conf.c
+@@ -931,6 +931,7 @@ libxlMakeNetworkDiskSrcStr(virStorageSourcePtr src,
+ 
+     switch ((virStorageNetProtocol) src->protocol) {
+     case VIR_STORAGE_NET_PROTOCOL_NBD:
++	case VIR_STORAGE_NET_PROTOCOL_CBD:
+     case VIR_STORAGE_NET_PROTOCOL_HTTP:
+     case VIR_STORAGE_NET_PROTOCOL_HTTPS:
+     case VIR_STORAGE_NET_PROTOCOL_FTP:
+diff --git a/src/libxl/xen_xl.c b/src/libxl/xen_xl.c
+index ed0ce77..56e693f 100644
+--- a/src/libxl/xen_xl.c
++++ b/src/libxl/xen_xl.c
+@@ -1590,6 +1590,7 @@ xenFormatXLDiskSrcNet(virStorageSourcePtr src)
+ 
+     switch ((virStorageNetProtocol) src->protocol) {
+     case VIR_STORAGE_NET_PROTOCOL_NBD:
++	case VIR_STORAGE_NET_PROTOCOL_CBD:
+     case VIR_STORAGE_NET_PROTOCOL_HTTP:
+     case VIR_STORAGE_NET_PROTOCOL_HTTPS:
+     case VIR_STORAGE_NET_PROTOCOL_FTP:
+diff --git a/src/qemu/qemu_block.c b/src/qemu/qemu_block.c
+index 4640e33..2c4614e 100644
+--- a/src/qemu/qemu_block.c
++++ b/src/qemu/qemu_block.c
+@@ -881,7 +881,6 @@ qemuBlockStorageSourceGetRBDProps(virStorageSourcePtr src,
+     return ret;
+ }
+ 
+-
+ static virJSONValuePtr
+ qemuBlockStorageSourceGetSheepdogProps(virStorageSourcePtr src)
+ {
+@@ -1181,6 +1180,7 @@ qemuBlockStorageSourceGetBackendProps(virStorageSourcePtr src,
+             break;
+ 
+         case VIR_STORAGE_NET_PROTOCOL_NONE:
++		case VIR_STORAGE_NET_PROTOCOL_CBD:
+         case VIR_STORAGE_NET_PROTOCOL_LAST:
+             virReportEnumRangeError(virStorageNetProtocol, src->protocol);
+             return NULL;
+@@ -2110,6 +2110,7 @@ qemuBlockGetBackingStoreString(virStorageSourcePtr src,
+ 
+             case VIR_STORAGE_NET_PROTOCOL_SHEEPDOG:
+             case VIR_STORAGE_NET_PROTOCOL_RBD:
++			case VIR_STORAGE_NET_PROTOCOL_CBD:
+             case VIR_STORAGE_NET_PROTOCOL_VXHS:
+             case VIR_STORAGE_NET_PROTOCOL_SSH:
+             case VIR_STORAGE_NET_PROTOCOL_LAST:
+@@ -2508,6 +2509,7 @@ qemuBlockStorageSourceCreateGetStorageProps(virStorageSourcePtr src,
+         case VIR_STORAGE_NET_PROTOCOL_FTPS:
+         case VIR_STORAGE_NET_PROTOCOL_TFTP:
+         case VIR_STORAGE_NET_PROTOCOL_NONE:
++		case VIR_STORAGE_NET_PROTOCOL_CBD:
+         case VIR_STORAGE_NET_PROTOCOL_LAST:
+             return 0;
+         }
+diff --git a/src/qemu/qemu_capabilities.c b/src/qemu/qemu_capabilities.c
+index 538551e..ac92a37 100644
+--- a/src/qemu/qemu_capabilities.c
++++ b/src/qemu/qemu_capabilities.c
+@@ -5138,7 +5138,7 @@ virQEMUCapsInitProcessCaps(virQEMUCapsPtr qemuCaps)
+     if (virQEMUCapsGet(qemuCaps, QEMU_CAPS_BLOCK_FILE_AUTO_READONLY_DYNAMIC) &&
+         virQEMUCapsGet(qemuCaps, QEMU_CAPS_SCSI_DISK_DEVICE_ID) &&
+         virQEMUCapsGet(qemuCaps, QEMU_CAPS_SAVEVM_MONITOR_NODES))
+-        virQEMUCapsSet(qemuCaps, QEMU_CAPS_BLOCKDEV);
++        /*virQEMUCapsSet(qemuCaps, QEMU_CAPS_BLOCKDEV);*/ //curve does not support QEMU_CAPS_BLOCKDEV
+ 
+     /* We can't probe "esp" as a type via virQEMUCapsObjectTypes
+      * array as it is only usable when builtin to the machine type
+diff --git a/src/qemu/qemu_command.c b/src/qemu/qemu_command.c
+index 479bcc0..30eb879 100644
+--- a/src/qemu/qemu_command.c
++++ b/src/qemu/qemu_command.c
+@@ -1018,6 +1018,12 @@ qemuBuildNetworkDriveStr(virStorageSourcePtr src,
+                            _("VxHS protocol does not support URI syntax"));
+             return NULL;
+ 
++        case VIR_STORAGE_NET_PROTOCOL_CBD:
++            virBufferStrcat(&buf, "cbd:", src->path, NULL);
++
++            ret = virBufferContentAndReset(&buf);
++            break;
++
+         case VIR_STORAGE_NET_PROTOCOL_SSH:
+             virReportError(VIR_ERR_INTERNAL_ERROR, "%s",
+                            _("'ssh' protocol is not yet supported"));
+diff --git a/src/qemu/qemu_domain.c b/src/qemu/qemu_domain.c
+index 663c0af..902946b 100644
+--- a/src/qemu/qemu_domain.c
++++ b/src/qemu/qemu_domain.c
+@@ -9580,6 +9580,7 @@ qemuDomainPrepareStorageSourceTLS(virStorageSourcePtr src,
+         break;
+ 
+     case VIR_STORAGE_NET_PROTOCOL_RBD:
++	case VIR_STORAGE_NET_PROTOCOL_CBD:
+     case VIR_STORAGE_NET_PROTOCOL_SHEEPDOG:
+     case VIR_STORAGE_NET_PROTOCOL_GLUSTER:
+     case VIR_STORAGE_NET_PROTOCOL_ISCSI:
+diff --git a/src/qemu/qemu_snapshot.c b/src/qemu/qemu_snapshot.c
+index 15494c3..19ea990 100644
+--- a/src/qemu/qemu_snapshot.c
++++ b/src/qemu/qemu_snapshot.c
+@@ -403,6 +403,7 @@ qemuSnapshotPrepareDiskExternalInactive(virDomainSnapshotDiskDefPtr snapdisk,
+         case VIR_STORAGE_NET_PROTOCOL_NONE:
+         case VIR_STORAGE_NET_PROTOCOL_NBD:
+         case VIR_STORAGE_NET_PROTOCOL_RBD:
++		case VIR_STORAGE_NET_PROTOCOL_CBD:
+         case VIR_STORAGE_NET_PROTOCOL_SHEEPDOG:
+         case VIR_STORAGE_NET_PROTOCOL_GLUSTER:
+         case VIR_STORAGE_NET_PROTOCOL_ISCSI:
+@@ -492,6 +493,7 @@ qemuSnapshotPrepareDiskExternalActive(virDomainObjPtr vm,
+         case VIR_STORAGE_NET_PROTOCOL_NONE:
+         case VIR_STORAGE_NET_PROTOCOL_NBD:
+         case VIR_STORAGE_NET_PROTOCOL_RBD:
++		case VIR_STORAGE_NET_PROTOCOL_CBD:
+         case VIR_STORAGE_NET_PROTOCOL_SHEEPDOG:
+         case VIR_STORAGE_NET_PROTOCOL_ISCSI:
+         case VIR_STORAGE_NET_PROTOCOL_HTTP:
+@@ -621,6 +623,7 @@ qemuSnapshotPrepareDiskInternal(virDomainDiskDefPtr disk,
+         case VIR_STORAGE_NET_PROTOCOL_NONE:
+         case VIR_STORAGE_NET_PROTOCOL_NBD:
+         case VIR_STORAGE_NET_PROTOCOL_RBD:
++		case VIR_STORAGE_NET_PROTOCOL_CBD:
+         case VIR_STORAGE_NET_PROTOCOL_SHEEPDOG:
+         case VIR_STORAGE_NET_PROTOCOL_GLUSTER:
+         case VIR_STORAGE_NET_PROTOCOL_ISCSI:
+diff --git a/src/util/virstoragefile.c b/src/util/virstoragefile.c
+index 35e6dcf..8a44868 100644
+--- a/src/util/virstoragefile.c
++++ b/src/util/virstoragefile.c
+@@ -78,6 +78,7 @@ VIR_ENUM_IMPL(virStorageFileFeature,
+ VIR_ENUM_IMPL(virStorageNetProtocol,
+               VIR_STORAGE_NET_PROTOCOL_LAST,
+               "none",
++			  "cbd",
+               "nbd",
+               "rbd",
+               "sheepdog",
+@@ -3151,6 +3152,7 @@ virStorageSourceParseBackingColon(virStorageSourcePtr src,
+     case VIR_STORAGE_NET_PROTOCOL_ISCSI:
+     case VIR_STORAGE_NET_PROTOCOL_GLUSTER:
+     case VIR_STORAGE_NET_PROTOCOL_SSH:
++	case VIR_STORAGE_NET_PROTOCOL_CBD:
+     case VIR_STORAGE_NET_PROTOCOL_VXHS:
+         virReportError(VIR_ERR_INTERNAL_ERROR,
+                        _("malformed backing store path for protocol %s"),
+@@ -3723,6 +3725,15 @@ virStorageSourceParseBackingJSONRBD(virStorageSourcePtr src,
+     return 0;
+ }
+ 
++static int
++virStorageSourceParseBackingJSONCBD(virStorageSourcePtr src ATTRIBUTE_UNUSED,
++                                    virJSONValuePtr json ATTRIBUTE_UNUSED,
++									const char *jsonstr G_GNUC_UNUSED,
++                                    int opaque ATTRIBUTE_UNUSED)
++{
++    return -1;//not support
++}
++
+ static int
+ virStorageSourceParseBackingJSONRaw(virStorageSourcePtr src,
+                                     virJSONValuePtr json,
+@@ -3853,6 +3864,7 @@ static const struct virStorageSourceJSONDriverParser jsonParsers[] = {
+     {"sheepdog", false, virStorageSourceParseBackingJSONSheepdog, 0},
+     {"ssh", false, virStorageSourceParseBackingJSONSSH, 0},
+     {"rbd", false, virStorageSourceParseBackingJSONRBD, 0},
++	{"cbd", false, virStorageSourceParseBackingJSONCBD, 0},
+     {"raw", true, virStorageSourceParseBackingJSONRaw, 0},
+     {"vxhs", false, virStorageSourceParseBackingJSONVxHS, 0},
+     {"nvme", false, virStorageSourceParseBackingJSONNVMe, 0},
+@@ -4629,6 +4641,7 @@ virStorageSourceNetworkDefaultPort(virStorageNetProtocol protocol)
+ 
+         case VIR_STORAGE_NET_PROTOCOL_LAST:
+         case VIR_STORAGE_NET_PROTOCOL_NONE:
++		case VIR_STORAGE_NET_PROTOCOL_CBD:
+             return 0;
+     }
+ 
+diff --git a/src/util/virstoragefile.h b/src/util/virstoragefile.h
+index 87763cf..979c69a 100644
+--- a/src/util/virstoragefile.h
++++ b/src/util/virstoragefile.h
+@@ -123,6 +123,7 @@ struct _virStorageTimestamps {
+ /* Information related to network storage */
+ typedef enum {
+     VIR_STORAGE_NET_PROTOCOL_NONE,
++	VIR_STORAGE_NET_PROTOCOL_CBD,
+     VIR_STORAGE_NET_PROTOCOL_NBD,
+     VIR_STORAGE_NET_PROTOCOL_RBD,
+     VIR_STORAGE_NET_PROTOCOL_SHEEPDOG,
+-- 
+2.20.1
+
