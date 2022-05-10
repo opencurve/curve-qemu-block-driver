@@ -12,9 +12,9 @@ Qemu挂载Curve块设备提供了两种方式：通过Curve-Client方式挂载�
 
 使用之前需要部署一个Curve集群，以及创建一个Curve卷，具体步骤参考[Curve部署](https://github.com/opencurve/curve/blob/master/docs/cn/deploy.md)。
 
-提供的patch基于[Qemu v2.8.0](https://github.com/qemu/qemu/tree/v2.8.0)版本。
+目前提供了基于 QEMU v2.8.0 v4.2.0 v5.2.0 v6.2.0 版本的 patch.
 
-## 使用方式
+## 使用方式（以 QEMU v2.8.0 版本为例）
 
 ### 通过Curve-Client挂载
 
@@ -22,7 +22,7 @@ Qemu挂载Curve块设备提供了两种方式：通过Curve-Client方式挂载�
 
 2. 修改`/etc/curve/client.conf`中`mds.listen.addr`配置项的值，指向Curve集群的MDS地址，多个地址用`,`分隔
 
-3. 将`curve-client.patch`应用到Qemu v2.8.0版本的代码上，然后编译
+3. 将`curve-client-qemu-v2.8.0.patch`应用到Qemu v2.8.0版本的代码上，然后编译
 
    参考步骤：
 
@@ -31,7 +31,7 @@ Qemu挂载Curve块设备提供了两种方式：通过Curve-Client方式挂载�
    git clone https://github.com/qemu/qemu.git
    cd qemu
    git checkout v2.8.0
-   patch -p1 < ../qemu-block-driver/curve-client.patch
+   patch -p1 < ../qemu-block-driver/qemu/curve-client-qemu-v2.8.0.patch
    mkdir build && cd build
    ../configure --target-list=x86_64-softmmu
    make -j`getconf _NPROCESSORS_ONLN`
@@ -82,7 +82,7 @@ Qemu挂载Curve块设备提供了两种方式：通过Curve-Client方式挂载�
    git clone https://github.com/qemu/qemu.git
    cd qemu
    git checkout v2.8.0   # 或git checkout v4.2.0
-   patch -p1 < ../curve-qemu-block-driver/nebd-qemu-v2.8.0.patch  # 或nebd-qemu-v4.2.0.patch
+   patch -p1 < ../curve-qemu-block-driver/qemu/nebd-qemu-v2.8.0.patch
    mkdir build && cd build
    ../configure --target-list=x86_64-softmmu
    make -j`getconf _NPROCESSORS_ONLN`
@@ -114,5 +114,5 @@ Qemu挂载Curve块设备提供了两种方式：通过Curve-Client方式挂载�
 
 ## libvirt支持
 
-`libvirt-curve.patch` 提供了对libvirt的支持，patch基于[libvirt 2.4.0](https://github.com/libvirt/libvirt/tree/v2.4.0)，其他版本可能需要相应的修改
+libvirt 目录下的 patch 提供了对libvirt的支持，目前支持了 v2.4.0 v5.10.0 v6.10.0 v7.10.0，其他版本可能需要相应的修改
 
