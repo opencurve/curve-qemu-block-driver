@@ -65,20 +65,9 @@ Qemu挂载Curve块设备提供了两种方式：通过Curve-Client方式挂载�
 
 1. 安装CurveBS 客户端，参考[部署 CurveBS 客户端](https://github.com/opencurve/curveadm/wiki/curvebs-client-deployment)
 
-2. 查询client并进入client docker
+2. curve nebd 在容器中默认启动
 
-    ```
-    curveadm client status
-    curveadm client enter xxxxx(client id)
-    ```
-
-3. 启动nebd-server
-
-   ```bash
-   sudo nebd-daemon start
-   ```
-
-4. 将`nebd-qemu-v2.8.0.patch`应用到QEMU v2.8.0版本的代码上，或将`nebd-qemu-v4.2.0.patch`应用到QEMU v4.2.0版本的代码上，然后编译
+3. 将`nebd-qemu-v2.8.0.patch`应用到QEMU v2.8.0版本的代码上，或将`nebd-qemu-v4.2.0.patch`应用到QEMU v4.2.0版本的代码上，然后编译
 
    参考步骤：
 
@@ -93,7 +82,7 @@ Qemu挂载Curve块设备提供了两种方式：通过Curve-Client方式挂载�
    make -j`getconf _NPROCESSORS_ONLN`
    ```
 
-5. 启动Qemu，并添加挂载Curve盘参数，例如：
+4. 启动Qemu，并添加挂载Curve盘参数，例如：
 
    ```bash
    ./x86_64-softmmu/qemu-system-x86_64 -L pc-bios/ \
@@ -115,7 +104,7 @@ Qemu挂载Curve块设备提供了两种方式：通过Curve-Client方式挂载�
    - /qemu0_curve_：/qemu0为提前创建的Curve卷，qemu为卷所属的用户，密码可选，如果创建卷时未指定，可以省略
    - /etc/curve/client.conf：client配置文件路径
 
-6. 进入Qemu虚拟机，并进行fio测试
+5. 进入Qemu虚拟机，并进行fio测试
 
 ## libvirt支持
 
