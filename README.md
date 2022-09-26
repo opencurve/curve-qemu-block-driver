@@ -63,9 +63,14 @@ Qemu挂载Curve块设备提供了两种方式：通过Curve-Client方式挂载�
 
 ### 通过NEBD挂载
 
-1. 安装NEBD，参考[Curve部署](https://github.com/opencurve/curve/blob/master/docs/cn/deploy.md)
+1. 安装CurveBS 客户端，参考[部署 CurveBS 客户端](https://github.com/opencurve/curveadm/wiki/curvebs-client-deployment)
 
-2. 修改`/etc/curve/client.conf`中`mds.listen.addr`配置项的值，指向Curve集群的MDS地址，多个地址用`,`分隔
+2. 查询client并进入client docker
+
+    ```
+    curveadm client status
+    curveadm client enter xxxxx(client id)
+    ```
 
 3. 启动nebd-server
 
