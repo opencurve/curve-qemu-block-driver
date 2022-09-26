@@ -10,7 +10,7 @@ Qemu挂载Curve块设备提供了两种方式：通过Curve-Client方式挂载�
 
 **注意事项：**
 
-使用之前需要部署一个Curve集群，以及创建一个Curve卷，具体步骤参考[Curve部署](https://github.com/opencurve/curve/blob/master/docs/cn/deploy.md)。
+使用之前需要部署一个Curve集群，以及创建一个Curve卷，具体步骤参考[使用 CurveAdm 部署 CurveBS 集群](https://github.com/opencurve/curveadm/wiki/curvebs-cluster-deployment)。
 
 目前提供了基于 QEMU v2.8.0 v4.2.0 v5.2.0 v6.2.0 版本的 patch.
 
@@ -18,7 +18,7 @@ Qemu挂载Curve块设备提供了两种方式：通过Curve-Client方式挂载�
 
 ### 通过Curve-Client挂载
 
-1. 安装Curve-SDK，参考[Curve部署](https://github.com/opencurve/curve/blob/master/docs/cn/deploy.md)
+1. 安装Curve-SDK，参考[Curve手动部署sdk](https://github.com/opencurve/curve/blob/master/docs/cn/curve%E9%80%9A%E8%BF%87tar%E5%8C%85%E6%89%8B%E5%8A%A8%E9%83%A8%E7%BD%B2sdk.md)
 
 2. 修改`/etc/curve/client.conf`中`mds.listen.addr`配置项的值，指向Curve集群的MDS地址，多个地址用`,`分隔
 
