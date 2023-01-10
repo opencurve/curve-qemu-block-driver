@@ -369,10 +369,10 @@ index 0000000000..03683a70ac
 +
 diff --git a/block/nebd.c b/block/nebd.c
 new file mode 100644
-index 0000000000..b4251181dd
+index 0000000000..6ca822c7b2
 --- /dev/null
 +++ b/block/nebd.c
-@@ -0,0 +1,425 @@
+@@ -0,0 +1,426 @@
 +/*
 + *     Copyright (c) 2020 NetEase Inc.
 + *
@@ -406,6 +406,7 @@ index 0000000000..b4251181dd
 +#include "libnebd.h"
 +#include "qapi/error.h"
 +#include "qemu/uri.h"
++#include "qemu/cutils.h"
 +#include "block/block_int.h"
 +#include "qemu/module.h"
 +#include "qemu/option.h"
@@ -919,3 +920,41 @@ index 6099be1d84..db8b49b428 100755
  echo "CONFIG_COROUTINE_BACKEND=$coroutine" >> $config_host_mak
  if test "$coroutine_pool" = "yes" ; then
    echo "CONFIG_COROUTINE_POOL=1" >> $config_host_mak
+diff --git a/qapi/block-core.json b/qapi/block-core.json
+index 0cf68fea14..c01c486373 100644
+--- a/qapi/block-core.json
++++ b/qapi/block-core.json
+@@ -2892,7 +2892,7 @@
+             'cloop', 'copy-on-read', 'dmg', 'file', 'ftp', 'ftps', 'gluster',
+             'host_cdrom', 'host_device', 'http', 'https', 'iscsi', 'luks',
+             'nbd', 'nfs', 'null-aio', 'null-co', 'nvme', 'parallels', 'qcow',
+-            'qcow2', 'qed', 'quorum', 'raw', 'rbd',
++            'qcow2', 'qed', 'quorum', 'raw', 'rbd', 'cbd',
+             { 'name': 'replication', 'if': 'defined(CONFIG_REPLICATION)' },
+             'sheepdog',
+             'ssh', 'throttle', 'vdi', 'vhdx', 'vmdk', 'vpc', 'vvfat', 'vxhs' ] }
+@@ -3691,6 +3691,16 @@
+             '*key-secret': 'str',
+             '*server': ['InetSocketAddressBase'] } }
+ 
++##
++# @BlockdevOptionsCbd:
++#
++# @filename:           Curve full volume path.
++#
++# Since: 2.9
++##
++{ 'struct': 'BlockdevOptionsCbd',
++  'data': { 'filename': 'str' } }
++
+ ##
+ # @BlockdevOptionsSheepdog:
+ #
+@@ -4068,6 +4078,7 @@
+       'quorum':     'BlockdevOptionsQuorum',
+       'raw':        'BlockdevOptionsRaw',
+       'rbd':        'BlockdevOptionsRbd',
++      'cbd':        'BlockdevOptionsCbd',
+       'replication': { 'type': 'BlockdevOptionsReplication',
+                        'if': 'defined(CONFIG_REPLICATION)' },
+       'sheepdog':   'BlockdevOptionsSheepdog',
