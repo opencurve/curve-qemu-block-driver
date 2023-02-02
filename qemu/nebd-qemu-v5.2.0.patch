@@ -1,28 +1,6 @@
-From 4a73f8ef044233712da28c12bea5383abea0b351 Mon Sep 17 00:00:00 2001
-From: root <root@host>
-Date: Tue, 26 Apr 2022 16:24:32 +0800
-Subject: [PATCH] support curve for qemu-5.2.0
-
-Signed-off-by: root <root@host>
----
- block/cbd.c       |  96 +++++++++++
- block/libcbd.h    | 142 ++++++++++++++++
- block/libnebd.h   |  88 ++++++++++
- block/meson.build |   2 +
- block/nebd.c      | 425 ++++++++++++++++++++++++++++++++++++++++++++++
- block/nebd.h      |  89 ++++++++++
- configure         |   8 +
- meson.build       |   5 +
- 8 files changed, 855 insertions(+)
- create mode 100644 block/cbd.c
- create mode 100644 block/libcbd.h
- create mode 100644 block/libnebd.h
- create mode 100644 block/nebd.c
- create mode 100644 block/nebd.h
-
 diff --git a/block/cbd.c b/block/cbd.c
 new file mode 100644
-index 000000000..d8ddadf16
+index 0000000000..d8ddadf165
 --- /dev/null
 +++ b/block/cbd.c
 @@ -0,0 +1,96 @@
@@ -124,7 +102,7 @@ index 000000000..d8ddadf16
 +
 diff --git a/block/libcbd.h b/block/libcbd.h
 new file mode 100644
-index 000000000..32d72e43d
+index 0000000000..32d72e43dd
 --- /dev/null
 +++ b/block/libcbd.h
 @@ -0,0 +1,142 @@
@@ -272,7 +250,7 @@ index 000000000..32d72e43d
 +
 diff --git a/block/libnebd.h b/block/libnebd.h
 new file mode 100644
-index 000000000..03683a70a
+index 0000000000..03683a70ac
 --- /dev/null
 +++ b/block/libnebd.h
 @@ -0,0 +1,88 @@
@@ -365,7 +343,7 @@ index 000000000..03683a70a
 +#endif  // __LIBNEBD_H_
 +
 diff --git a/block/meson.build b/block/meson.build
-index 5dcc1e5cc..47ea51153 100644
+index 5dcc1e5cce..47ea511537 100644
 --- a/block/meson.build
 +++ b/block/meson.build
 @@ -39,6 +39,7 @@ block_ss.add(files(
@@ -386,7 +364,7 @@ index 5dcc1e5cc..47ea51153 100644
      if enable_modules
 diff --git a/block/nebd.c b/block/nebd.c
 new file mode 100644
-index 000000000..885bd55b2
+index 0000000000..885bd55b22
 --- /dev/null
 +++ b/block/nebd.c
 @@ -0,0 +1,425 @@
@@ -817,7 +795,7 @@ index 000000000..885bd55b2
 +}
 diff --git a/block/nebd.h b/block/nebd.h
 new file mode 100644
-index 000000000..1e6449867
+index 0000000000..1e64498675
 --- /dev/null
 +++ b/block/nebd.h
 @@ -0,0 +1,89 @@
@@ -911,7 +889,7 @@ index 000000000..1e6449867
 +#endif  // __NEBD_H_
 +
 diff --git a/configure b/configure
-index 18c26e038..15babfc4f 100755
+index 18c26e0389..15babfc4f8 100755
 --- a/configure
 +++ b/configure
 @@ -372,6 +372,7 @@ trace_backends="log"
@@ -937,7 +915,7 @@ index 18c26e038..15babfc4f 100755
  if test "$coroutine_pool" = "yes" ; then
    echo "CONFIG_COROUTINE_POOL=1" >> $config_host_mak
 diff --git a/meson.build b/meson.build
-index e3386196b..dc22641c0 100644
+index e3386196ba..dc22641c0e 100644
 --- a/meson.build
 +++ b/meson.build
 @@ -596,6 +596,11 @@ rbd = not_found
@@ -952,6 +930,41 @@ index e3386196b..dc22641c0 100644
  glusterfs = not_found
  if 'CONFIG_GLUSTERFS' in config_host
    glusterfs = declare_dependency(compile_args: config_host['GLUSTERFS_CFLAGS'].split(),
--- 
-2.20.1
-
+diff --git a/qapi/block-core.json b/qapi/block-core.json
+index 04ad80bc1e..fafd26c683 100644
+--- a/qapi/block-core.json
++++ b/qapi/block-core.json
+@@ -2829,7 +2829,7 @@
+             'cloop', 'compress', 'copy-on-read', 'dmg', 'file', 'ftp', 'ftps',
+             'gluster', 'host_cdrom', 'host_device', 'http', 'https', 'iscsi',
+             'luks', 'nbd', 'nfs', 'null-aio', 'null-co', 'nvme', 'parallels',
+-            'qcow', 'qcow2', 'qed', 'quorum', 'raw', 'rbd',
++            'qcow', 'qcow2', 'qed', 'quorum', 'raw', 'rbd', 'cbd',
+             { 'name': 'replication', 'if': 'defined(CONFIG_REPLICATION)' },
+             'sheepdog',
+             'ssh', 'throttle', 'vdi', 'vhdx', 'vmdk', 'vpc', 'vvfat' ] }
+@@ -3647,6 +3647,16 @@
+             '*key-secret': 'str',
+             '*server': ['InetSocketAddressBase'] } }
+ 
++##
++# @BlockdevOptionsCbd:
++#
++# @filename:           Curve full volume path.
++#
++# Since: 2.9
++##
++{ 'struct': 'BlockdevOptionsCbd',
++  'data': { 'filename': 'str' } }
++
+ ##
+ # @BlockdevOptionsSheepdog:
+ #
+@@ -4012,6 +4022,7 @@
+       'quorum':     'BlockdevOptionsQuorum',
+       'raw':        'BlockdevOptionsRaw',
+       'rbd':        'BlockdevOptionsRbd',
++      'cbd':        'BlockdevOptionsCbd',
+       'replication': { 'type': 'BlockdevOptionsReplication',
+                        'if': 'defined(CONFIG_REPLICATION)' },
+       'sheepdog':   'BlockdevOptionsSheepdog',
